@@ -277,12 +277,21 @@
         <div class="add-stock">
             <h2>添加自选股</h2>
             <div class="input-group">
-                <input type="text" id="stockCode" placeholder="输入股票代码（如：000547、600519）">
+                <input type="text" id="stockCode" placeholder="输入股票代码（如：000547、600519）" onkeypress="if(event.key==='Enter') addStock()">
                 <button onclick="addStock()">添加</button>
             </div>
             <p style="margin-top: 15px; color: #666; font-size: 0.9em;">
                 支持：深交所（000xxx、002xxx、300xxx）、上交所（600xxx、601xxx、688xxx）
             </p>
+            <div style="margin-top: 15px;">
+                <p style="color: #667eea; font-size: 0.9em; margin-bottom: 10px;">快速添加示例：</p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button onclick="quickAdd('000547')" style="padding: 8px 15px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 5px; cursor: pointer; font-size: 14px; transition: all 0.3s;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#f0f0f0'">000547 航天发展</button>
+                    <button onclick="quickAdd('600519')" style="padding: 8px 15px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 5px; cursor: pointer; font-size: 14px; transition: all 0.3s;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#f0f0f0'">600519 贵州茅台</button>
+                    <button onclick="quickAdd('000858')" style="padding: 8px 15px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 5px; cursor: pointer; font-size: 14px; transition: all 0.3s;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#f0f0f0'">000858 五粮液</button>
+                    <button onclick="quickAdd('601318')" style="padding: 8px 15px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 5px; cursor: pointer; font-size: 14px; transition: all 0.3s;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#f0f0f0'">601318 中国平安</button>
+                </div>
+            </div>
         </div>
 
         <div class="stocks-grid" id="stocksGrid">
@@ -314,10 +323,16 @@
         });
 
         // 添加股票
-        function addStock() {
-            const code = document.getElementById('stockCode').value.trim();
+        async function addStock() {
+            const code = document.getElementById('stockCode').value.trim().toUpperCase();
             if (!code) {
                 alert('请输入股票代码');
+                return;
+            }
+
+            // 验证股票代码格式
+            if (!/^[0-9]{6}$/.test(code)) {
+                alert('股票代码格式错误，请输入6位数字');
                 return;
             }
 
@@ -326,11 +341,71 @@
                 return;
             }
 
-            watchlist.push(code);
-            saveWatchlist();
-            renderStocks();
-            refreshAllStocks();
-            document.getElementById('stockCode').value = '';
+            // 先验证股票代码是否有效
+            try {
+                const exchange = code.startsWith('6') ? 'sh' : 'sz';
+                const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(`http://qt.gtimg.cn/q=${exchange}${code}`)}`;
+                
+                const response = await fetch(url);
+                const data = await response.text();
+                
+                const match = data.match(/v_.*="([^"]+)"/);
+                if (!match) {
+                    alert('股票代码无效，请检查后重试');
+                    return;
+                }
+
+                const values = match[1].split('~');
+                if (!values[1] || values[1] === '') {
+                    alert('股票代码无效或已退市');
+                    return;
+                }
+
+                watchlist.push(code);
+                saveWatchlist();
+                renderStocks();
+                refreshAllStocks();
+                document.getElementById('stockCode').value = '';
+            } catch (error) {
+                alert('添加失败，请检查网络连接或股票代码');
+                console.error('添加股票失败:', error);
+            }
+        }
+
+        // 快速添加示例股票
+        async function quickAdd(code) {
+            if (watchlist.includes(code)) {
+                alert('该股票已在自选股中');
+                return;
+            }
+
+            try {
+                const exchange = code.startsWith('6') ? 'sh' : 'sz';
+                const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(`http://qt.gtimg.cn/q=${exchange}${code}`)}`;
+                
+                const response = await fetch(url);
+                const data = await response.text();
+                
+                const match = data.match(/v_.*="([^"]+)"/);
+                if (!match) {
+                    alert('股票代码无效，请检查后重试');
+                    return;
+                }
+
+                const values = match[1].split('~');
+                if (!values[1] || values[1] === '') {
+                    alert('股票代码无效或已退市');
+                    return;
+                }
+
+                watchlist.push(code);
+                saveWatchlist();
+                renderStocks();
+                refreshAllStocks();
+            } catch (error) {
+                alert('添加失败，请检查网络连接');
+                console.error('添加股票失败:', error);
+            }
         }
 
         // 移除股票
@@ -364,7 +439,10 @@
             grid.innerHTML = watchlist.map(code => `
                 <div class="stock-card" id="stock-${code}">
                     <div class="stock-header">
-                        <h3>${code}</h3>
+                        <div>
+                            <h3 id="name-${code}">${code}</h3>
+                            <p style="color: #999; font-size: 0.9em; margin-top: 5px;">${code}</p>
+                        </div>
                         <button class="remove-btn" onclick="removeStock('${code}')">移除</button>
                     </div>
                     <div class="stock-info">
@@ -410,10 +488,19 @@
             try {
                 // 判断交易所
                 const exchange = code.startsWith('6') ? 'sh' : 'sz';
-                const url = `http://qt.gtimg.cn/q=${exchange}${code}`;
+                // 使用CORS代理解决跨域问题
+                const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(`http://qt.gtimg.cn/q=${exchange}${code}`)}`;
 
                 const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error('网络请求失败');
+                }
                 const data = await response.text();
+
+                // 检查是否返回了有效数据
+                if (!data || data.trim() === '') {
+                    throw new Error('无数据返回');
+                }
 
                 // 解析数据
                 const match = data.match(/v_.*="([^"]+)"/);
@@ -422,28 +509,55 @@
                 }
 
                 const values = match[1].split('~');
+                
+                // 验证数据有效性
+                if (values.length < 40 || !values[1] || !values[3]) {
+                    throw new Error('股票代码无效或已退市');
+                }
+
                 const stockData = {
                     name: values[1],
-                    price: parseFloat(values[3]),
-                    change: parseFloat(values[4]),
-                    changePercent: parseFloat(values[5]),
-                    volume: parseFloat(values[6]),
-                    amount: parseFloat(values[37]),
-                    open: parseFloat(values[5]),
-                    high: parseFloat(values[33]),
-                    low: parseFloat(values[34]),
-                    yesterdayClose: parseFloat(values[4])
+                    price: parseFloat(values[3]) || 0,
+                    change: parseFloat(values[4]) || 0,
+                    changePercent: parseFloat(values[32]) || 0,
+                    volume: parseFloat(values[6]) || 0,
+                    amount: parseFloat(values[37]) || 0,
+                    open: parseFloat(values[5]) || 0,
+                    high: parseFloat(values[33]) || 0,
+                    low: parseFloat(values[34]) || 0,
+                    yesterdayClose: parseFloat(values[4]) || 0
                 };
+
+                // 检查价格是否有效
+                if (stockData.price === 0) {
+                    throw new Error('股票价格无效');
+                }
 
                 updateStockDisplay(code, stockData);
             } catch (error) {
                 console.error(`获取 ${code} 数据失败:`, error);
-                document.getElementById(`analysis-${code}`).textContent = '获取数据失败，请稍后重试';
+                const analysisEl = document.getElementById(`analysis-${code}`);
+                if (analysisEl) {
+                    analysisEl.textContent = `获取数据失败：${error.message}`;
+                    analysisEl.style.color = '#e74c3c';
+                }
+                
+                // 显示错误状态
+                const priceEl = document.getElementById(`price-${code}`);
+                const changeEl = document.getElementById(`change-${code}`);
+                if (priceEl) priceEl.textContent = '获取失败';
+                if (changeEl) changeEl.textContent = '--';
             }
         }
 
         // 更新股票显示
         function updateStockDisplay(code, data) {
+            // 更新股票名称
+            const nameEl = document.getElementById(`name-${code}`);
+            if (nameEl) {
+                nameEl.textContent = data.name || code;
+            }
+
             // 更新价格
             const priceEl = document.getElementById(`price-${code}`);
             priceEl.textContent = data.price.toFixed(2);
@@ -464,7 +578,11 @@
 
             // 生成分析
             const analysis = generateAnalysis(data);
-            document.getElementById(`analysis-${code}`).textContent = analysis;
+            const analysisEl = document.getElementById(`analysis-${code}`);
+            if (analysisEl) {
+                analysisEl.textContent = analysis;
+                analysisEl.style.color = '#666';
+            }
         }
 
         // 格式化成交量
